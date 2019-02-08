@@ -1,0 +1,5 @@
+---
+# tasks file for weblogic
+- include: "{{ item }}"
+  with_items: 
+    - weblogic.yml

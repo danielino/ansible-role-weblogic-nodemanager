@@ -1,0 +1,109 @@
+import sys
+user = os.environ.get("ADMIN_USER", "{{ weblogic_admin_user }}")
+password = os.environ.get("ADMIN_PASSWORD", "{{ weblogic_admin_password }}")
+domain_path = os.environ.get("DOMAIN_PATH", "{{ domains_directory }}")
+hostname = list(os.popen('hostname -s'))[0].replace('\n','')
+java_home = os.environ.get('JAVA_HOME')
+node_manager_home = os.environ.get('NODE_MANAGER_HOME', "{{ nodemanager_home }}")
+node_ip = os.environ.get('NODE_HOST', "{{ nodemanager_ip }}")
+admin_host = os.environ.get('ADMIN_HOST', "{{ weblogic_admin_host }}")
+admin_port = os.environ.get('ADMIN_PORT', "{{ weblogic_admin_port }}")
+log_file = os.environ.get('WLST_LOG_FILE', "{{ wlst_log_file }}")
+
+
+class Log:
+    def __init__(self, filename):
+        self.fp = open(filename, 'w+')
+        sys.stdout = self.fp
+
+    def write(self,message, level):
+        message = "%s - [%s] - %s" % ( java.util.Date().toString(), level, message)
+        if not message.endswith('\n'):
+            message = "%s\n" % message
+        self.fp.write(message)
+        self.fp.flush()
+
+    def debug(self,message):
+        self.write(message, 'DEBUG')
+
+    def info(self,message):
+        self.write(message, 'INFO')
+
+    def warn(self,message):
+        self.write(message, 'WARN')
+
+    def error(self,message):
+        self.write(message, 'ERROR')
+
+    def destroy(self):
+        self.fp.close()
+
+
+log = Log(log_file)
+
+def create_local_domain():
+    log.info("configure local domain")
+    readTemplate("/sw/oracle/fusion_middleware_11/wlserver_10.3/common/templates/domains/wls.jar")
+    log.info("configure user password")
+    cd('/')
+    cd('Security/base_domain/User/weblogic')
+    cmo.setPassword(password)
+    setOption('OverwriteDomain', 'true')
+    setOption('ServerStartMode','prod')
+    log.info("write domain configuration")
+    writeDomain(domain_path)
+    log.info("domain updated, closing template")
+    closeTemplate()
+    log.info("template closed")
+
+def create_unix_local_machine(hostname, listen='', port=5556):
+    # create unixMachine and configure NodeManager
+    log.info("configure unix local machine")
+    readDomain(domain_path)
+    cd('/')
+    create(hostname, 'UnixMachine')
+    cd('Machine/%s'% hostname)
+    log.info("updating domain configuration")
+    updateDomain()
+    log.info("domain updated")
+    closeDomain()
+
+def create_unix_machine(hostname, ip, port=5556):
+    log.info("create unixMachine on admin server")
+    cd('/')
+    cmo.createUnixMachine(hostname)
+    cd('/Machines/%s/NodeManager/%s' % (hostname, hostname))
+    cmo.setNMType('SSL')
+    log.debug("ListenAddress: %s" % ip)
+    cmo.setListenAddress(ip)
+    log.debug('ListenPort: %s' % port)
+    cmo.setListenPort(port)
+    log.debug("disable Debug")
+    cmo.setDebugEnabled(False)
+    log.info("unixMachine created")
+
+def main():
+    log.info("\n---- create_local_domain() ----")
+    create_local_domain()
+    log.info("\n---- create_unix_local_machine() ----")
+    create_unix_local_machine(hostname)
+
+    # add machine into AdminServer
+    # connect and start edit session
+    log.info("connecting to adminserver %s" % admin_host)
+    connect(user, password, 't3://%s:%s' % ( admin_host, admin_port))
+    log.info("connection established")
+    log.info("starting edit session")
+    edit()
+    startEdit()
+    log.info("edit session started")
+    # create unix machine
+    log.info("\n---- create_unix_machine() ----")
+    create_unix_machine(hostname, node_ip)
+    log.info("commit changes")
+    activate()
+    log.info("changes commited")
+    nmEnroll(domain_path, node_manager_home)
+
+main()
+log.destroy()

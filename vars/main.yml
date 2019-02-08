@@ -1,0 +1,3 @@
+---
+role: 'nodemanager'
+wlst_script_name: create-wls-domain.py
